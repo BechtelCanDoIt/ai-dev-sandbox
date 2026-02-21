@@ -1,0 +1,10 @@
+# Build artifacts — never commit these (ext4 images can be multi-GB)
+.build/
+
+# Local env (contains API keys)
+.env
+
+# Workspace contents (user data)
+workspace/*
+# But keep the folder itself and the .gitkeep file to ensure the workspace directory exists in the repo
+!workspace/.gitkeep

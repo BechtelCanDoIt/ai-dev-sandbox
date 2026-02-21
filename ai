@@ -1,0 +1,257 @@
+#!/bin/bash
+# =============================================================================
+# ai — AI-Dev-Sandbox CLI
+# =============================================================================
+# Project CLI for building, running, and managing the AI-Dev-Sandbox.
+#
+# Usage:
+#   ./ai              Start the sandbox (builds first if needed)
+#   ./ai build [...]  Build images (passes args through to build.sh)
+#   ./ai version      Print version
+#   ./ai gh           Print GitHub repository link
+#   ./ai help         Show this help
+# =============================================================================
+
+set -euo pipefail
+
+# ─── Configuration ────────────────────────────────────────────────────────────
+source .env
+VERSION="1.0.0"
+PROJECT_NAME="AI-Dev-Sandbox"
+CONTAINER_NAME="ai-dev-sandbox"
+HOST_IMAGE="ai-dev-sandbox-host:latest"
+GITHUB_URL="https://github.com/BechtelCanDoIt/ai-dev-sandbox/tree/main/ai-dev-sandbox"
+
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+COMPOSE_FILE="$PROJECT_DIR/docker-compose.yml"
+BUILD_SCRIPT="$PROJECT_DIR/scripts/build.sh"
+
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+BLUE=$'\033[0;34m'
+BOLD=$'\033[1m'
+DIM=$'\033[2m'
+NC=$'\033[0m'
+
+log_info()  { echo -e "${BLUE}[ai]${NC} $*"; }
+log_ok()    { echo -e "${GREEN}[ai]${NC} $*"; }
+log_warn()  { echo -e "${YELLOW}[ai]${NC} $*"; }
+log_error() { echo -e "${RED}[ai]${NC} $*" >&2; }
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+is_built() {
+    docker image inspect "$HOST_IMAGE" &>/dev/null 2>&1
+}
+
+is_running() {
+    local state
+    state=$(docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null) || return 1
+    [ "$state" = "true" ]
+}
+
+is_created() {
+    docker inspect "$CONTAINER_NAME" &>/dev/null 2>&1
+}
+
+# ─── Commands ─────────────────────────────────────────────────────────────────
+
+cmd_build() {
+    if [ ! -x "$BUILD_SCRIPT" ]; then
+        log_error "Build script not found: $BUILD_SCRIPT"
+        log_error "Expected at: scripts/build.sh"
+        exit 1
+    fi
+    exec "$BUILD_SCRIPT" "$@"
+}
+
+cmd_version() {
+    echo "${PROJECT_NAME} v${VERSION}"
+}
+
+cmd_gh() {
+    echo ""
+    echo -e "  ${BOLD}${PROJECT_NAME}${NC} on GitHub:"
+    echo ""
+    echo -e "  \e]8;;${GITHUB_URL}\e\\${BLUE}${GITHUB_URL}${NC}\e]8;;\e\\"
+    echo ""
+}
+
+cmd_start() {
+    echo ""
+    echo -e "${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}${PROJECT_NAME}${NC} v${VERSION}                                         ${GREEN}║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    # ── Build if needed ───────────────────────────────────────────────────
+    if ! is_built; then
+        log_warn "Host image not found — starting build..."
+        echo ""
+        "$BUILD_SCRIPT"
+        echo ""
+    fi
+
+    # ── Already running? Just re-attach ───────────────────────────────────
+    if is_running; then
+        log_ok "Sandbox is already running"
+        attach
+    fi
+
+    # ── Clean up stale container if it exists but isn't running ───────────
+    if is_created; then
+        log_info "Removing stale container..."
+        docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+    fi
+
+    # ── Start detached ────────────────────────────────────────────────────
+    log_info "Starting sandbox..."
+    docker compose -f "$COMPOSE_FILE" up -d
+
+    # ── Wait for the MicroVM to boot ──────────────────────────────────────
+    wait_for_ready
+    attach
+}
+
+wait_for_ready() {
+    local timeout=180
+    local elapsed=0
+    local ready_marker="Quick Start:"
+
+    echo ""
+    log_info "Waiting for MicroVM to boot..."
+    printf "  "
+
+    while [ $elapsed -lt $timeout ]; do
+        # Bail if the container died
+        if ! is_running; then
+            echo ""
+            log_error "Container stopped unexpectedly. Check logs:"
+            log_error "  docker compose -f $COMPOSE_FILE logs"
+            exit 1
+        fi
+
+        # Check for the banner's final line in the container logs
+        if docker logs "$CONTAINER_NAME" 2>&1 | grep -q "$ready_marker"; then
+            echo ""
+            log_ok "Sandbox is ready"
+            return 0
+        fi
+
+        printf "▪"
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+
+    echo ""
+    log_warn "Timed out after ${timeout}s — attaching anyway (VM may still be booting)"
+}
+
+attach() {
+    echo ""
+    log_info "Attaching to ${BOLD}${CONTAINER_NAME}${NC}..."
+    log_info "${DIM}Detach without stopping: CTRL-Q${NC}"
+    echo ""
+    echo "Press enter to continue..."
+    exec docker attach --detach-keys="ctrl-q" "$CONTAINER_NAME"
+}
+
+cmd_stop() {
+    if is_running; then
+        log_info "Stopping sandbox..."
+        docker compose -f "$COMPOSE_FILE" down
+        log_ok "Sandbox stopped"
+    else
+        log_info "Sandbox is not running"
+    fi
+}
+
+cmd_architecture() {
+    cat << EOF
+
+  ${BOLD}Architecture Overview${NC}
+
+    ${BOLD}ARCHITECTURE${NC}
+    Host machine
+      └── ai-dev-sandbox-host:latest  (Firecracker VMM container)
+            └── Firecracker MicroVM   (ai-dev-sandbox.ext4 guest rootfs)
+                  └── Guest Docker daemon
+                        └── ai-dev-sandbox:latest  ← you work here
+
+  The AI-Dev-Sandbox consists of two main components:
+
+  1. Host Container:
+     - A Docker container running a lightweight Linux environment.
+     - Provides tools for building the guest image and managing the sandbox.
+     - Mounts the project directory for easy access to code and data.
+
+  2. Guest MicroVM:
+     - A Firecracker microVM running a minimal Linux distribution.
+     - Acts as the "sandbox" where AI development and testing occurs.
+     - Communicates with the host via a virtio serial console.
+
+  The host uses Docker Compose to orchestrate both components, ensuring they
+  can be started, stopped, and managed together seamlessly.
+
+EOF
+}
+
+cmd_help() {
+    cat << EOF
+
+
+  ${BOLD}${PROJECT_NAME}${NC} v${VERSION}
+
+  ${BOLD}USAGE${NC}
+    ./ai [command]
+
+  ${BOLD}COMMANDS${NC}
+    ${GREEN}(default)${NC}     Start the sandbox and attach to the guest shell.
+                  Builds automatically if the host image doesn't exist yet.
+                  If already running, re-attaches to the existing session.
+    ${GREEN}build${NC}         Build the Docker images. Accepts build.sh options:
+                    clean        Clean rebuild (removes .build/)
+                    inner-only   Rebuild the inner image only
+                    inject-only  Re-run rootfs injection only
+                    host-only    Rebuild the host image only
+    ${GREEN}stop${NC}          Stop the sandbox (docker compose down)
+    ${GREEN}version${NC}       Print version
+    ${GREEN}gh${NC}            Print the GitHub repository link
+    ${GREEN}help${NC}          Show this help
+    ${GREEN}architecture${NC}  Print high level architecture info 
+
+  ${BOLD}QUICK START${NC}
+    ./ai                  # Build (if needed) + start + attach
+    ./ai build clean    # Force a clean rebuild
+    ./ai stop             # Shut down the VM
+
+  ${BOLD}DETACH / RE-ATTACH${NC}
+    While inside the sandbox, press ${BOLD}CTRL-Q${NC} to detach
+    without stopping the VM. Run ${BOLD}./ai${NC} again to re-attach.
+
+EOF
+}
+
+# ─── Main ─────────────────────────────────────────────────────────────────────
+main() {
+    local cmd="${1:-}"
+
+    case "$cmd" in
+        build)          shift; cmd_build "$@" ;;
+        stop)           cmd_stop ;;
+        version|-v|--version)  cmd_version ;;
+        gh)             cmd_gh ;;
+        help|-h|--help) cmd_help ;;
+        architecture)   cmd_architecture ;;
+        "")             cmd_start ;;
+        *)
+            log_error "Unknown command: $cmd"
+            echo ""
+            cmd_help
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

@@ -1,0 +1,38 @@
+# =============================================================================
+# AI-Dev-Sandbox — Host Image (Firecracker VMM Container with AI-Dev-Sandbox baked in)
+# =============================================================================
+# This image runs on the Docker HOST as the Firecracker VMM container.
+# It extends firecracker-base:latest and overrides the guest rootfs with
+# ai-dev-sandbox.ext4, which has the ai-dev-sandbox Docker image pre-baked into it.
+#
+# Architecture:
+#   Host machine
+#     └── THIS IMAGE  ← Firecracker VMM, manages the microVM
+#           └── Firecracker MicroVM (ai-dev-sandbox.ext4 as rootfs)
+#                 └── Guest Linux: systemd, Docker daemon
+#                       └── ai-dev-sandbox:latest (Dockerfile) ← developer works here
+#
+# Build:
+#   Use build.sh — this file is built as the final step after inject-ai-dev-sandbox.sh
+#   has produced .build/ai-dev-sandbox.ext4.
+# =============================================================================
+
+FROM firecracker-base:latest
+
+LABEL maintainer="ai-dev-sandbox" \
+      description="ai-dev-sandbox host — Firecracker VMM with ai-dev-sandbox pre-baked into guest rootfs" \
+      version="1.0.0"
+
+# Point Firecracker at the ai-dev-sandbox rootfs instead of the plain base.ext4
+ENV FC_ROOTFS=/var/lib/firecracker/rootfs/ai-dev-sandbox.ext4
+
+# Inject the pre-built rootfs (produced by build.sh → inject-ai-dev-sandbox.sh)
+COPY .build/ai-dev-sandbox.ext4 /var/lib/firecracker/rootfs/ai-dev-sandbox.ext4
+
+# Host entrypoint wrapper: writes API keys to workspace for the guest,
+# then hands off to firecracker-base's original entrypoint.sh
+COPY scripts/host-entrypoint.sh /usr/local/bin/host-entrypoint.sh
+RUN chmod +x /usr/local/bin/host-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/host-entrypoint.sh"]
+CMD ["start"]

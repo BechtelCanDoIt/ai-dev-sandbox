@@ -1,0 +1,271 @@
+#!/bin/bash
+# =============================================================================
+# voice — Interactive Voice Interface for AI Tools
+# Gracefully skips audio entirely if PulseAudio is unavailable.
+# =============================================================================
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+STT_CMD="${SCRIPT_DIR}/stt"
+TTS_CMD="${SCRIPT_DIR}/tts"
+WHISPER_MODEL="${WHISPER_MODEL:-base.en}"
+PIPER_VOICE="${PIPER_VOICE:-en_US-amy-medium}"
+RECORD_SECONDS="${VOICE_RECORD_SECONDS:-10}"
+AI_TOOL="${VOICE_AI_TOOL:-claude}"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Returns 0 if PulseAudio is reachable
+audio_available() {
+    pactl info &>/dev/null 2>&1
+}
+
+show_help() {
+    cat << EOF
+Voice Mode — Interactive Voice Interface for AI Tools
+
+Usage: voice [options] [command]
+
+Commands:
+  chat      Interactive voice chat (default)
+  listen    Record and transcribe (STT only)
+  speak     Speak text (TTS only): voice speak "hello"
+  test      Test audio input/output
+  config    Show current configuration
+
+Options:
+  -a, --ai TOOL         AI backend: claude, chatgpt, gemini, ollama (default: $AI_TOOL)
+  -m, --stt-model MODEL Whisper model for STT (default: $WHISPER_MODEL)
+  -v, --voice VOICE     Piper voice for TTS (default: $PIPER_VOICE)
+  -t, --time SECONDS    Recording duration (default: $RECORD_SECONDS)
+  -q, --quiet           Suppress status messages
+  --no-tts              Disable TTS (text-only responses)
+  --no-stt              Disable STT (type input instead)
+  -h, --help            Show this help
+
+Environment Variables:
+  VOICE_AI_TOOL         Default AI backend
+  VOICE_RECORD_SECONDS  Recording duration
+  WHISPER_MODEL         Whisper model
+  PIPER_VOICE           Piper voice
+  OLLAMA_HOST           Ollama server URL
+
+Note:
+  Voice mode requires PulseAudio. On systems without audio, use --no-stt --no-tts
+  to interact via text only, or use the AI tools (claude, gemini, etc.) directly.
+EOF
+}
+
+test_audio() {
+    echo -e "${BLUE}[VOICE]${NC} Testing audio setup..."
+    echo ""
+
+    if audio_available; then
+        echo -e "${GREEN}✓${NC} PulseAudio connected"
+
+        echo -e "${CYAN}Testing TTS...${NC}"
+        if "$TTS_CMD" -q "Audio test. Text to speech is working." 2>/dev/null; then
+            echo -e "${GREEN}✓${NC} TTS working"
+        else
+            echo -e "${RED}✗${NC} TTS failed"
+        fi
+
+        echo -e "${CYAN}Testing STT (speak for 3 seconds)...${NC}"
+        local result
+        result=$("$STT_CMD" -t 3 -q 2>/dev/null) || true
+        if [ -n "$result" ]; then
+            echo -e "${GREEN}✓${NC} STT working — heard: \"$result\""
+        else
+            echo -e "${RED}✗${NC} STT got no speech (microphone issue?)"
+        fi
+    else
+        echo -e "${RED}✗${NC} PulseAudio not available"
+        echo "  Voice mode requires a PulseAudio socket mounted into the container."
+        echo "  You can still use AI tools directly: claude, gemini, opencode, chatgpt"
+    fi
+
+    echo ""
+    echo -e "${CYAN}Testing AI connection ($AI_TOOL)...${NC}"
+    case "$AI_TOOL" in
+        claude)  command -v claude  &>/dev/null && echo -e "${GREEN}✓${NC} Claude Code available"  || echo -e "${RED}✗${NC} Claude Code not installed" ;;
+        chatgpt) command -v chatgpt &>/dev/null && echo -e "${GREEN}✓${NC} ChatGPT CLI available"   || echo -e "${RED}✗${NC} ChatGPT CLI not installed" ;;
+        gemini)  command -v gemini  &>/dev/null && echo -e "${GREEN}✓${NC} Gemini CLI available"    || echo -e "${RED}✗${NC} Gemini CLI not installed" ;;
+        ollama)
+            if curl -sf --max-time 2 "${OLLAMA_HOST:-http://localhost:11434}/api/tags" &>/dev/null; then
+                echo -e "${GREEN}✓${NC} Ollama connected at ${OLLAMA_HOST:-http://localhost:11434}"
+            else
+                echo -e "${RED}✗${NC} Cannot reach Ollama at ${OLLAMA_HOST:-http://localhost:11434}"
+            fi ;;
+        *) echo -e "${YELLOW}?${NC} Unknown AI tool: $AI_TOOL" ;;
+    esac
+
+    echo ""
+    echo -e "${BLUE}[VOICE]${NC} Test complete"
+}
+
+show_config() {
+    echo "Voice Mode Configuration"
+    echo "========================"
+    echo "AI Tool:     $AI_TOOL"
+    echo "STT Model:   $WHISPER_MODEL"
+    echo "TTS Voice:   $PIPER_VOICE"
+    echo "Record Time: ${RECORD_SECONDS}s"
+    echo "Audio:       $(audio_available && echo 'available' || echo 'not available')"
+    echo ""
+    echo "STT Command: $STT_CMD"
+    echo "TTS Command: $TTS_CMD"
+    echo ""
+    "$STT_CMD" --list-models 2>/dev/null || true
+    "$TTS_CMD" --list-voices 2>/dev/null || true
+}
+
+send_to_ai() {
+    local message="$1" tool="$2"
+
+    case "$tool" in
+        claude)
+            command -v claude &>/dev/null || { echo "Claude Code not installed"; return 1; }
+            echo "$message" | claude --print 2>/dev/null || echo "Claude could not process that."
+            ;;
+        chatgpt)
+            command -v chatgpt &>/dev/null || { echo "ChatGPT CLI not installed"; return 1; }
+            chatgpt "$message" 2>/dev/null || echo "ChatGPT could not process that."
+            ;;
+        gemini)
+            command -v gemini &>/dev/null || { echo "Gemini CLI not installed"; return 1; }
+            gemini "$message" 2>/dev/null || echo "Gemini could not process that."
+            ;;
+        opencode)
+            command -v opencode &>/dev/null || { echo "OpenCode CLI not installed"; return 1; }
+            opencode "$message" 2>/dev/null || echo "OpenCode could not process that."
+            ;;
+        ollama)
+            local model="${OLLAMA_MODEL:-llama3.2}"
+            curl -sf "${OLLAMA_HOST:-http://localhost:11434}/api/generate" \
+                -d "{\"model\": \"$model\", \"prompt\": \"$message\", \"stream\": false}" \
+                2>/dev/null | jq -r '.response // "Ollama could not process that."'
+            ;;
+        *)
+            echo "Unknown AI tool: $tool"
+            ;;
+    esac
+}
+
+chat_loop() {
+    local use_stt="$1" use_tts="$2" quiet="$3"
+
+    # If audio requested but not available, fall back gracefully
+    if [ "$use_stt" = "true" ] && ! audio_available; then
+        echo -e "${YELLOW}[VOICE]${NC} Audio not available — falling back to text input (--no-stt mode)"
+        use_stt="false"
+    fi
+    if [ "$use_tts" = "true" ] && ! audio_available; then
+        echo -e "${YELLOW}[VOICE]${NC} Audio not available — responses will be text-only (--no-tts mode)"
+        use_tts="false"
+    fi
+
+    echo ""
+    echo -e "${BLUE}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║${NC}  Voice Mode — ${AI_TOOL}                                     ${BLUE}║${NC}"
+    echo -e "${BLUE}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "Say ${YELLOW}'exit'${NC} or ${YELLOW}'quit'${NC} to end."
+    [ "$use_stt" = "true" ] && echo -e "Press ${YELLOW}Enter${NC} to start recording, or type and press Enter."
+    [ "$use_stt" = "false" ] && echo -e "Type your message and press Enter."
+    echo ""
+
+    local last_response=""
+
+    while true; do
+        local user_input=""
+
+        if [ "$use_stt" = "true" ]; then
+            echo -ne "${CYAN}[You]${NC} Press Enter to speak (or type)... "
+            read -r typed
+
+            if [ -z "$typed" ]; then
+                [ "$quiet" != "true" ] && echo -e "${YELLOW}Listening...${NC}"
+                user_input=$("$STT_CMD" -m "$WHISPER_MODEL" -t "$RECORD_SECONDS" -q 2>/dev/null) || true
+                echo -e "${CYAN}[You]${NC} $user_input"
+            else
+                user_input="$typed"
+            fi
+        else
+            echo -ne "${CYAN}[You]${NC} "
+            read -r user_input
+        fi
+
+        [ -z "$user_input" ] && { echo -e "${YELLOW}(No input)${NC}"; continue; }
+
+        case "$(echo "$user_input" | tr '[:upper:]' '[:lower:]')" in
+            exit|quit|bye|goodbye)
+                echo -e "${GREEN}[AI]${NC} Goodbye!"
+                [ "$use_tts" = "true" ] && "$TTS_CMD" -q "Goodbye!" 2>/dev/null || true
+                break ;;
+            repeat|"repeat that"|"say that again")
+                if [ -n "$last_response" ]; then
+                    echo -e "${GREEN}[AI]${NC} $last_response"
+                    [ "$use_tts" = "true" ] && "$TTS_CMD" -q "$last_response" 2>/dev/null || true
+                else
+                    echo -e "${YELLOW}(Nothing to repeat)${NC}"
+                fi
+                continue ;;
+        esac
+
+        [ "$quiet" != "true" ] && echo -e "${YELLOW}Thinking...${NC}"
+        local response
+        response=$(send_to_ai "$user_input" "$AI_TOOL")
+
+        echo -e "${GREEN}[AI]${NC} $response"
+        last_response="$response"
+        [ "$use_tts" = "true" ] && "$TTS_CMD" -q "$response" 2>/dev/null || true
+        echo ""
+    done
+}
+
+# =============================================================================
+# Main
+# =============================================================================
+QUIET="false"
+USE_STT="true"
+USE_TTS="true"
+COMMAND="chat"
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -a|--ai)           AI_TOOL="$2";      shift 2 ;;
+        -m|--stt-model)    WHISPER_MODEL="$2"; shift 2 ;;
+        -v|--voice)        PIPER_VOICE="$2";   shift 2 ;;
+        -t|--time)         RECORD_SECONDS="$2"; shift 2 ;;
+        -q|--quiet)        QUIET="true";       shift ;;
+        --no-tts)          USE_TTS="false";    shift ;;
+        --no-stt)          USE_STT="false";    shift ;;
+        -h|--help)         show_help; exit 0 ;;
+        chat|listen|speak|test|config) COMMAND="$1"; shift; break ;;
+        -*)                echo "Unknown option: $1" >&2; show_help >&2; exit 1 ;;
+        *)                 COMMAND="speak"; break ;;
+    esac
+done
+
+export WHISPER_MODEL PIPER_VOICE
+
+case "$COMMAND" in
+    chat)    chat_loop "$USE_STT" "$USE_TTS" "$QUIET" ;;
+    listen)
+        if ! audio_available; then
+            echo -e "${YELLOW}[VOICE]${NC} Audio not available — cannot listen" >&2; exit 0
+        fi
+        "$STT_CMD" -m "$WHISPER_MODEL" -t "$RECORD_SECONDS" "$@"
+        ;;
+    speak)   "$TTS_CMD" -v "$PIPER_VOICE" "$@" ;;
+    test)    test_audio ;;
+    config)  show_config ;;
+    *)       echo "Unknown command: $COMMAND" >&2; show_help >&2; exit 1 ;;
+esac

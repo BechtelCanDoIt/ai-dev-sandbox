@@ -1,0 +1,127 @@
+# =============================================================================
+# AI-Dev-Sandbox — Docker Compose (Host Layer)
+# =============================================================================
+# Runs the Firecracker VMM container on the Docker host.
+# The MicroVM inside boots guest Linux + Docker, loads ai-dev-sandbox:latest,
+# and auto-drops you into the ai-dev-sandbox shell on login.
+#
+# Architecture:
+#   Host machine
+#     └── THIS COMPOSE  →  ai-dev-sandbox-host:latest  (manages the VMM)
+#           └── Firecracker MicroVM  (ai-dev-sandbox.ext4 guest rootfs)
+#                 └── Guest Docker daemon
+#                       └── ai-dev-sandbox:latest  ← developer works here
+#
+# Prerequisites:
+#   1. firecracker-base built:  cd ../firecracker-base && ./build.sh
+#   2. ai-dev-sandbox built:        ./build.sh
+#   3. KVM enabled on host:     see TURNONKVM.md in firecracker-base
+#
+# Run:
+#   cp .env.template .env && $EDITOR .env
+#   docker compose up
+# =============================================================================
+
+services:
+  ai-dev-sandbox:
+    image: ai-dev-sandbox-host:latest
+    container_name: ai-dev-sandbox
+    hostname: ai-dev-sandbox-host
+
+    # =========================================================================
+    # REQUIRED: KVM + TAP networking for Firecracker
+    # =========================================================================
+    devices:
+      - /dev/kvm:/dev/kvm
+      - /dev/net/tun:/dev/net/tun
+
+    # =========================================================================
+    # CAPABILITIES
+    # =========================================================================
+    cap_add:
+      - NET_ADMIN   # TAP device creation, iptables rules
+      - NET_RAW     # Raw sockets for ping/debugging
+      - SYS_ADMIN   # Loop-mount workspace.ext4 inside container
+      - MKNOD       # Create /dev/net/tun if missing
+
+    pids_limit: 1024
+
+    # host docker memory limit
+    #mem_limit: 4g
+    #memswap_limit: 4g
+
+    # =========================================================================
+    # SECURITY
+    # =========================================================================
+    # Firecracker VMM requires broad syscall access; seccomp must be unconfined.
+    # AppArmor also blocks some VMM operations — unconfined is required.
+    privileged: true
+    security_opt:
+      - apparmor:unconfined
+      - seccomp:unconfined
+
+    # =========================================================================
+    # VOLUMES
+    # =========================================================================
+    volumes:
+      # Your project directory — synced into the VM at /workspace
+      - ${HOST_WORKSPACE:-./workspace}:/workspace:rw
+
+    # =========================================================================
+    # ENVIRONMENT
+    # VM resource settings are consumed by the host entrypoint.
+    # API keys + config are written to /workspace/.sandbox.env by
+    # host-entrypoint.sh so the guest can pass them into ai-dev-sandbox:latest.
+    # =========================================================================
+    environment:
+      # ── Guest VM Resources ──────────────────────────────────────────────────────
+      - FC_VCPU=${FC_VCPU:-4}
+      - FC_MEM=${FC_MEM:-2048}  # in MB
+      - FC_WORKSPACE_SIZE=${FC_WORKSPACE_SIZE:-4096}
+      - FC_LOG_LEVEL=${FC_LOG_LEVEL:-Warning}
+      - FC_CONSOLE_TYPE=${FC_CONSOLE_TYPE:-interactive}
+      - FC_TAP_IP=${FC_TAP_IP:-172.16.0.1}
+      - FC_VM_IP=${FC_VM_IP:-172.16.0.2}
+
+      # ── AI API Keys (forwarded into ai-dev-sandbox container inside guest) ────
+      # Set these in .env, environment variables from a vault, or here directly. 
+      # They are written to /workspace/.sandbox.env by the host entrypoint script, 
+      # which the guest entrypoint then sources to pass into the inner container.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+
+      # ── Ollama ────────────────────────────────────────────────────────────
+      # Default: 172.16.0.1 is the TAP gateway = Docker host as seen from VM.
+      # If Ollama runs on the host, this default works without changes.
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://172.16.0.1:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+
+      # ── Voice ─────────────────────────────────────────────────────────────
+      - WHISPER_MODEL=${WHISPER_MODEL:-base.en}
+      - PIPER_VOICE=${PIPER_VOICE:-en_US-amy-medium}
+      - VOICE_AI_TOOL=${VOICE_AI_TOOL:-claude}
+
+    env_file:
+      - path: .env
+        required: false
+
+    # =========================================================================
+    # NETWORKING
+    # =========================================================================
+    # Firecracker TAP networking works cleanest with host networking.
+    # The TAP device (tap0) is created in the container's netns, and traffic
+    # is forwarded through the host via NAT (iptables MASQUERADE in setup-network.sh).
+    # With host networking, the container shares the host netns directly,
+    # simplifying routing without double-NAT.
+    network_mode: host
+
+    # =========================================================================
+    # BEHAVIOR
+    # =========================================================================
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    stop_grace_period: 30s

@@ -1,0 +1,171 @@
+#!/bin/bash
+# =============================================================================
+# tts — Text-to-Speech via Piper
+# Gracefully skips playback if no audio hardware/PulseAudio is available.
+# bc is available (installed via apt in Dockerfile).
+# =============================================================================
+
+set -e
+
+PIPER_DIR="${PIPER_DIR:-/opt/piper}"
+PIPER_BIN="${PIPER_BIN:-${PIPER_DIR}/piper}"
+MODEL_PATH="${PIPER_MODEL_PATH:-/models/piper}"
+VOICE="${PIPER_VOICE:-en_US-amy-medium}"
+OUTPUT_DIR="${TTS_OUTPUT_DIR:-/tmp}"
+
+export LD_LIBRARY_PATH="${PIPER_DIR}/lib:${LD_LIBRARY_PATH:-}"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+show_help() {
+    cat << EOF
+Text-to-Speech using Piper
+
+Usage: tts [options] "text to speak"
+       echo "text" | tts [options]
+
+Options:
+  -v, --voice VOICE     Voice model (default: $VOICE)
+  -o, --output FILE     Save audio to file (default: play directly)
+  -s, --speed RATE      Speaking rate multiplier (default: 1.0)
+  -q, --quiet           Suppress progress messages
+  --no-play             Save to file without playing
+  --list-voices         List available voices
+  -h, --help            Show this help
+
+Available voices:
+  en_US-amy-medium      US English female (default)
+  en_US-lessac-medium   US English male
+
+Environment Variables:
+  PIPER_VOICE           Default voice
+  PIPER_MODEL_PATH      Model directory (default: /models/piper)
+  TTS_OUTPUT_DIR        Temp file directory (default: /tmp)
+EOF
+}
+
+list_voices() {
+    echo "Available Piper voices in $MODEL_PATH:"
+    for model in "$MODEL_PATH"/*.onnx; do
+        [ -f "$model" ] || continue
+        local name size
+        name=$(basename "$model" .onnx)
+        size=$(du -h "$model" | cut -f1)
+        echo "  $name ($size)"
+    done
+}
+
+# Returns 0 if audio playback is available
+has_audio_playback() {
+    if command -v paplay &>/dev/null && pactl info &>/dev/null 2>&1; then return 0; fi
+    if command -v aplay  &>/dev/null; then return 0; fi
+    if command -v play   &>/dev/null; then return 0; fi
+    if command -v ffplay &>/dev/null; then return 0; fi
+    return 1
+}
+
+play_audio() {
+    local file="$1"
+
+    if ! has_audio_playback; then
+        echo -e "${YELLOW}[TTS]${NC} No audio playback available — audio not played" >&2
+        return 0   # Graceful — not an error
+    fi
+
+    if command -v paplay &>/dev/null && pactl info &>/dev/null 2>&1; then
+        paplay "$file" 2>/dev/null
+    elif command -v aplay &>/dev/null; then
+        aplay -q "$file" 2>/dev/null
+    elif command -v play &>/dev/null; then
+        play -q "$file" 2>/dev/null
+    elif command -v ffplay &>/dev/null; then
+        ffplay -nodisp -autoexit -loglevel quiet "$file" 2>/dev/null
+    fi
+}
+
+synthesize() {
+    local text="$1" voice="$2" output="$3" speed="$4" quiet="$5"
+    local model_file="$MODEL_PATH/${voice}.onnx"
+    local config_file="$MODEL_PATH/${voice}.onnx.json"
+
+    if [ ! -f "$model_file" ]; then
+        echo -e "${RED}[TTS]${NC} Voice model not found: $model_file" >&2
+        list_voices >&2
+        return 1
+    fi
+
+    [ "$quiet" != "true" ] && echo -e "${BLUE}[TTS]${NC} Synthesizing with voice: $voice" >&2
+
+    local args=(--model "$model_file" --output_file "$output")
+
+    [ -f "$config_file" ] && args+=(--config "$config_file")
+
+    # Speed via length_scale (inverse of speed): uses bc (available via apt)
+    if [ "$speed" != "1.0" ] && [ -n "$speed" ]; then
+        local length_scale
+        length_scale=$(echo "scale=4; 1/$speed" | bc -l)
+        args+=(--length_scale "$length_scale")
+    fi
+
+    echo "$text" | "$PIPER_BIN" "${args[@]}" 2>/dev/null
+
+    [ "$quiet" != "true" ] && echo -e "${GREEN}[TTS]${NC} Synthesis complete" >&2
+}
+
+# =============================================================================
+# Main
+# =============================================================================
+OUTPUT_FILE=""
+SPEED="1.0"
+QUIET="false"
+NO_PLAY="false"
+TEXT=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -v|--voice)     VOICE="$2";       shift 2 ;;
+        -o|--output)    OUTPUT_FILE="$2"; shift 2 ;;
+        -s|--speed)     SPEED="$2";       shift 2 ;;
+        -q|--quiet)     QUIET="true";     shift ;;
+        --no-play)      NO_PLAY="true";   shift ;;
+        --list-voices)  list_voices; exit 0 ;;
+        -h|--help)      show_help; exit 0 ;;
+        -*)             echo "Unknown option: $1" >&2; show_help >&2; exit 1 ;;
+        *)              TEXT="$1"; shift ;;
+    esac
+done
+
+[ ! -x "$PIPER_BIN" ] && { echo -e "${RED}[TTS]${NC} Piper not found at $PIPER_BIN" >&2; exit 1; }
+
+# Read from stdin if no text given
+if [ -z "$TEXT" ]; then
+    [ -t 0 ] && echo -e "${YELLOW}Enter text (Ctrl+D when done):${NC}" >&2
+    TEXT=$(cat)
+fi
+[ -z "$TEXT" ] && { echo -e "${RED}[TTS]${NC} No text provided" >&2; exit 1; }
+
+# Determine output file
+TEMP_FILE=""
+if [ -z "$OUTPUT_FILE" ]; then
+    if [ "$NO_PLAY" = "true" ]; then
+        echo -e "${RED}[TTS]${NC} Must specify --output with --no-play" >&2; exit 1
+    fi
+    TEMP_FILE=$(mktemp "$OUTPUT_DIR/tts_XXXXXX.wav")
+    trap "rm -f '$TEMP_FILE'" EXIT
+    OUTPUT_FILE="$TEMP_FILE"
+fi
+
+synthesize "$TEXT" "$VOICE" "$OUTPUT_FILE" "$SPEED" "$QUIET"
+
+if [ -n "$TEMP_FILE" ]; then
+    play_audio "$OUTPUT_FILE"
+elif [ "$NO_PLAY" != "true" ]; then
+    play_audio "$OUTPUT_FILE"
+    [ "$QUIET" != "true" ] && echo -e "${GREEN}[TTS]${NC} Saved to: $OUTPUT_FILE"
+else
+    [ "$QUIET" != "true" ] && echo -e "${GREEN}[TTS]${NC} Saved to: $OUTPUT_FILE"
+fi

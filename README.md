@@ -17,7 +17,7 @@ AI terminal development environment running inside a **Firecracker MicroVM** to 
 ```
 Your machine
   └── Docker: AI-Dev-Sandbox-Host              ← Firecracker VMM container (HOST layer)
-        └── Firecracker MicroVM            ← Hardware-isolated guest Linux
+        └── Firecracker MicroVM                ← Hardware-isolated guest Linux
               ├── systemd
               ├── Docker daemon
               ├── load-ai-dev-sandbox.service  ← loads pre-baked image on first boot

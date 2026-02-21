@@ -45,7 +45,7 @@ Your host workspace (`./workspace/`) is shared into the VM at `/workspace`, and 
 cp .env.template .env
 # Fill in your API keys in .env
 
-./build.sh
+./ai build
 ```
 
 Build steps (automated by `build.sh`):
@@ -61,16 +61,16 @@ Build steps (automated by `build.sh`):
 ### Incremental builds
 
 ```bash
-./build.sh --inner-only    # Rebuild just the inner image (iterating on tools/scripts)
-./build.sh --inject-only   # Re-run rootfs injection only
-./build.sh --host-only     # Rebuild just the host image
-./build.sh --clean         # Full clean rebuild
+./ai build inner-only    # Rebuild just the inner image (iterating on tools/scripts)
+./ai build inject-only   # Re-run rootfs injection only
+./ai build host-only     # Rebuild just the host image
+./ai build clean         # Full clean rebuild
 ```
 
 ## Run
 
 ```bash
-docker compose up
+./ai
 ```
 
 What happens:

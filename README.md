@@ -9,7 +9,7 @@
 AI terminal development environment running inside a **Firecracker MicroVM** to protect the host system.
 
 <div style="text-align: center;">
-  <p><img src="./images/ai-dev-sandbox.png" alt="AI-Dev-Sandbox logo" width="50%" align="middle"></p>
+  <p><img src="./images/ai-dev-sandbox.png" alt="AI-Dev-Sandbox logo" align="middle"></p>
 </div>
 
 ## Architecture
@@ -151,5 +151,5 @@ The AI-Dev-Sandbox container inside the VM is a standard Docker container — wr
 
 # Build On
 <div style="text-align: center;">
-  <a href="https://github.com/docker"><img src="./images/firecrackerbase.jpg" alt="Docker image" width="25%" align="middle"></a>
+  <a href="https://github.com/BechtelCanDoIt/firecracker-base"><img src="./images/firecrackerbase.jpg" alt="firectracker-base" width="25%" align="middle"></a>
 </div>

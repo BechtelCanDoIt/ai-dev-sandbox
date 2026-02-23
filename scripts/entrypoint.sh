@@ -65,12 +65,15 @@ setup_home() {
 
     # npm global prefix → home dir (no sudo needed, survives home volume)
     npm config set prefix '/home/sandbox/.npm-global' 2>/dev/null || true
+
+    log_success "Home directory setup complete"   
 }
 
 # =============================================================================
 # AI CLI tool installers
 # Each is idempotent — checks for the binary first.
-# All run in parallel on first boot (see main()).
+# npm-based installs run sequentially (shared global store).
+# Go-based installs can run in parallel with npm.
 # After the first run ~/.sandbox_initialized persists in the home volume,
 # so subsequent container starts skip this entirely.
 # =============================================================================
@@ -141,7 +144,8 @@ setup_voice_mode() {
         log_success "Voice mode: PulseAudio connected (stt / tts / voice ready)"
     else
         log_warn "Voice mode: no audio detected — stt/tts/voice will be skipped gracefully"
-        log_warn "  To enable: mount a PulseAudio socket into the guest VM"
+        log_warn "  To enable: on the host run:"
+        log_warn "    pactl load-module module-native-protocol-tcp auth-ip-acl=\"127.0.0.1;172.16.0.0/24\" auth-anonymous=1"
     fi
 }
 
@@ -149,8 +153,9 @@ setup_voice_mode() {
 # Ollama connectivity check
 # =============================================================================
 check_ollama() {
+    echo "enter check_ollama function"
     local host="${OLLAMA_HOST:-}"
-    [ -z "$host" ] && return 0
+    [ -z "$host" ] && log_error "OLLAMA_HOST is not set" && return 0
 
     if curl -sf --max-time 3 "$host/api/tags" >/dev/null 2>&1; then
         local models
@@ -160,6 +165,7 @@ check_ollama() {
     else
         log_warn "OPTIONAL - Ollama: cannot reach $host - install on host or cloud."
     fi
+    echo "exit check_ollama function"
 }
 
 # =============================================================================
@@ -177,27 +183,41 @@ main() {
 
     setup_home
 
-    # Install AI CLIs in parallel — each writes its own log to /tmp/
-    install_claude_code  &
-    install_opencode     &
-    install_chatgpt_cli  &
-    install_gemini_cli   &
-    wait
+    # Install AI CLIs:
+    #   - npm-based tools run sequentially (shared global store)
+    #   - Go and curl-based tools run in parallel alongside npm
+    install_opencode 
+    install_chatgpt_cli 
+
+    install_claude_code
+    install_gemini_cli
+
+    wait || true   # collect background jobs; don't die if one failed
+
+    # Pre-seed Claude Code config to skip the interactive theme picker
+    # (which can freeze on some terminal setups)
+    mkdir -p ~/.claude
+    [ -f ~/.claude/settings.json ] || echo '{"theme":"dark"}' > ~/.claude/settings.json
 
     setup_voice_mode
     check_ollama
+
+    cp /workspace/.sandbox.env ~/.env 2>/dev/null || true
 
     touch ~/.sandbox_initialized
     log_success "Initialization complete"
 }
 
 # ─── Run init on first start only (marker persists in home volume) ────────────
+source ~/.bashrc 2>/dev/null || true
+source /workspace/.sandbox.env 2>/dev/null || true
+source /workspace/.env 2>/dev/null || true #First run this is missing until main runs. This is for follow up runs.
+
 if [ ! -f ~/.sandbox_initialized ]; then
     main
 fi
 
 cd /workspace 2>/dev/null || true
-source ~/.bashrc 2>/dev/null || true
 print_banner
 
 # ─── Execute requested command or drop into bash ─────────────────────────────

@@ -38,6 +38,8 @@ log_warn()  { echo -e "${YELLOW}[inject]${NC} $*"; }
 log_error() { echo -e "${RED}[inject]${NC} $*" >&2; }
 
 cleanup() {
+  umount "$MOUNT/dev"  2>/dev/null || true
+  umount "$MOUNT/proc" 2>/dev/null || true
   if mountpoint -q "$MOUNT" 2>/dev/null; then
     umount "$MOUNT" 2>/dev/null || true
   fi
@@ -128,6 +130,44 @@ log_info "Ensuring iptables exists in guest"
 chroot "$MOUNT" /bin/bash -lc 'command -v iptables >/dev/null 2>&1 || (apt-get update && apt-get install -y iptables)' || true
 
 # =============================================================================
+# Guest SSH server — allows proper PTY access from host container
+# Without this, docker attach gives a broken serial console that can't handle
+# raw mode (needed by Claude Code / Ink TUI).
+# =============================================================================
+
+log_info "Installing OpenSSH server in guest rootfs"
+
+# Mount /proc and /dev for chroot apt-get (needed for post-install scripts)
+mount --bind /proc "$MOUNT/proc"
+mount --bind /dev  "$MOUNT/dev"
+
+chroot "$MOUNT" /bin/bash -lc '
+    if ! command -v sshd >/dev/null 2>&1; then
+        apt-get update && apt-get install -y --no-install-recommends openssh-server
+        rm -rf /var/lib/apt/lists/*
+    fi
+    mkdir -p /run/sshd
+    # Set sandbox password for SSH login
+    echo "sandbox:sandbox" | chpasswd
+    # Enable password auth and user environment vars
+    sed -i "s/^#*PasswordAuthentication.*/PasswordAuthentication yes/" /etc/ssh/sshd_config
+    sed -i "s/^#*PermitUserEnvironment.*/PermitUserEnvironment yes/" /etc/ssh/sshd_config
+    # Accept TERM env var from SSH client for proper terminal support
+    grep -q "^AcceptEnv TERM" /etc/ssh/sshd_config || echo "AcceptEnv TERM" >> /etc/ssh/sshd_config
+' || { umount "$MOUNT/dev" 2>/dev/null; umount "$MOUNT/proc" 2>/dev/null; log_error "Failed to install SSH in guest"; exit 1; }
+
+umount "$MOUNT/dev"  2>/dev/null || true
+umount "$MOUNT/proc" 2>/dev/null || true
+
+# Enable sshd systemd service in guest
+ln -sf /lib/systemd/system/ssh.service \
+  "$MOUNT/etc/systemd/system/multi-user.target.wants/ssh.service" 2>/dev/null || \
+ln -sf /lib/systemd/system/sshd.service \
+  "$MOUNT/etc/systemd/system/multi-user.target.wants/sshd.service" 2>/dev/null || true
+
+log_ok "OpenSSH server installed and enabled in guest"
+
+# =============================================================================
 # Guest egress policy
 # Internet stays open for DNS plus HTTP plus HTTPS
 # All RFC1918 is blocked
@@ -147,6 +187,7 @@ ENV_DST="${ENV_DST_DIR}/sandbox.env"
 
 ALLOW_IP=""
 ALLOW_PORTS="11434"
+TAP_GW="172.16.0.1"
 
 mkdir -p "$ENV_DST_DIR"
 chmod 700 "$ENV_DST_DIR"
@@ -171,6 +212,12 @@ iptables -A OUTPUT -o lo -j ACCEPT
 iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
 iptables -A OUTPUT -p tcp --dport 80 -j ACCEPT
 iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT
+
+# Allow PulseAudio TCP to TAP gateway (for voice mode)
+iptables -A OUTPUT -d "$TAP_GW" -p tcp --dport 4713 -j ACCEPT
+
+# Allow Ollama on TAP gateway (host-local LLM)
+iptables -A OUTPUT -d "$TAP_GW" -p tcp --dport 11434 -j ACCEPT
 
 if [ -n "$ALLOW_IP" ]; then
   IFS=',' read -ra PORT_ARR <<< "$ALLOW_PORTS"
@@ -229,11 +276,13 @@ if [ -t 0 ] && [ -z "${SANDBOX_MODE:-}" ] && command -v docker >/dev/null 2>&1; 
 
   echo ""
   echo "  ╔══════════════════════════════════════════════════════════╗"
-  echo "  ║                     AI-Sandbox MicroVM                   ║"
+  echo "  ║             AI-Dev-Sandbox MicroVM Loading...            ║"
   echo "  ╚══════════════════════════════════════════════════════════╝"
   echo ""
+  echo "  AI-Dev-Sandbox comes with ABSOLUTELY NO WARRANTY." 
+  echo "  See LICENSE for details."
+  echo ""
 
-  echo "  Waiting for ai-dev-sandbox image"
   for i in $(seq 1 120); do
     if docker image inspect ai-dev-sandbox:latest >/dev/null 2>&1; then
       break
@@ -247,12 +296,19 @@ if [ -t 0 ] && [ -z "${SANDBOX_MODE:-}" ] && command -v docker >/dev/null 2>&1; 
       ENV_FILE_ARG="--env-file /var/lib/ai-dev-sandbox/env/sandbox.env"
     fi
 
-    exec docker run -it --rm \
-      --name ai-dev-sandbox \
-      --hostname ai-dev-sandbox \
-      -v /workspace:/workspace \
-      $ENV_FILE_ARG \
-      ai-dev-sandbox:latest
+    # If the container is already running (e.g. from serial console or another
+    # SSH session), exec into it instead of trying to create a second one.
+    if docker ps --format '{{.Names}}' | grep -q '^ai-dev-sandbox$'; then
+      exec docker exec -it -w /workspace ai-dev-sandbox /bin/bash
+    else
+      exec docker run -it --rm \
+        --name ai-dev-sandbox \
+        --hostname ai-dev-sandbox \
+        -v /workspace:/workspace \
+        -v ai-dev-sandbox-home:/home/sandbox \
+        $ENV_FILE_ARG \
+        ai-dev-sandbox:latest
+    fi
   else
     echo ""
     echo "────────────────────────────────────────────────────────"

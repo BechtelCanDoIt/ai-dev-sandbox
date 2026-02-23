@@ -12,8 +12,8 @@
 #                       └── THIS IMAGE  ← developer works here
 #
 # Build:
-#   Use build.sh — do not build this directly.
-#   build.sh builds this, saves it as a tar, and injects it into the rootfs.
+#   Use ai build — do not build this Dockerfile directly.
+#   ai build: builds this, saves it as a tar, and injects it into the rootfs.
 # =============================================================================
 
 # =============================================================================
@@ -81,7 +81,7 @@ FROM ubuntu:24.04
 
 LABEL maintainer="ai-dev-sandbox" \
       description="AI development sandbox — runs inside Firecracker guest VM Docker" \
-      version="1.0"
+      version="1.0.0"
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -96,7 +96,13 @@ RUN if ! id sandbox &>/dev/null; then \
 # ─── Core toolchains & utilities ──────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Essentials
-    ca-certificates curl wget git file procps \
+    ca-certificates curl wget git file procps vim nano htop \
+    iproute2 \
+    iputils-ping \
+    bind9-dnsutils \
+    netcat-openbsd \
+    locales \
+    iptables \
     # Build tools
     build-essential bc \
     # Data & scripting
@@ -114,6 +120,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # GnuPG (for GitHub CLI key)
     gnupg \
     && rm -rf /var/lib/apt/lists/*
+
 
 # ─── GitHub CLI ───────────────────────────────────────────────────────────────
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -142,6 +149,9 @@ COPY --chown=sandbox:sandbox scripts/tts           /opt/scripts/tts
 COPY --chown=sandbox:sandbox scripts/voice         /opt/scripts/voice
 COPY --chown=sandbox:sandbox scripts/banner.sh     /opt/scripts/banner.sh
 RUN chmod +x /opt/scripts/*
+
+RUN echo "/opt/scripts/banner.sh" >> /home/sandbox/.bashrc
+
 
 # ─── Switch to sandbox user ───────────────────────────────────────────────────
 USER sandbox
@@ -175,7 +185,7 @@ ENV WHISPER_MODEL_PATH=/models/whisper \
     VOICE_AI_TOOL=claude \
     VOICE_RECORD_SECONDS=10 \
     SANDBOX_MODE=true \
-    SANDBOX_VERSION=1.0 \
+    SANDBOX_VERSION=1.0.0 \
     TERM=xterm-256color \
     COLORTERM=truecolor \
     EDITOR=vim \

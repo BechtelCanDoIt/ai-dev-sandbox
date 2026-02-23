@@ -13,7 +13,7 @@
 #                       └── ai-dev-sandbox:latest (Dockerfile) ← developer works here
 #
 # Build:
-#   Use build.sh — this file is built as the final step after inject-ai-dev-sandbox.sh
+#   Use ai build — this file is built as the final step after inject-ai-dev-sandbox.sh
 #   has produced .build/ai-dev-sandbox.ext4.
 # =============================================================================
 
@@ -22,6 +22,10 @@ FROM firecracker-base:latest
 LABEL maintainer="ai-dev-sandbox" \
       description="ai-dev-sandbox host — Firecracker VMM with ai-dev-sandbox pre-baked into guest rootfs" \
       version="1.0.0"
+
+# Install sshpass + openssh-client so the host can SSH into the guest VM
+# (firecracker-base is Alpine-based)
+RUN apk add --no-cache sshpass openssh-client
 
 # Point Firecracker at the ai-dev-sandbox rootfs instead of the plain base.ext4
 ENV FC_ROOTFS=/var/lib/firecracker/rootfs/ai-dev-sandbox.ext4

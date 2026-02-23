@@ -29,7 +29,7 @@ Your machine
                     ├── GitHub CLI   (gh)
                     ├── Git CLI      (git)
                     ├── Go 1.22, Python 3, Rust 1.75, Node.js
-                    └── Voice: Whisper STT + Piper TTS (gracefully optional)
+                    └── Voice: Whisper STT + Piper TTS (gracefully optional) <--- This is a work in progress
 ```
 
 Your host workspace (`./workspace/`) is shared into the VM at `/workspace`, and from there into the AI-Dev-Sandbox container at `/workspace`.

@@ -59,6 +59,12 @@ WHISPER_MODEL=${WHISPER_MODEL:-base.en}
 PIPER_VOICE=${PIPER_VOICE:-en_US-amy-medium}
 VOICE_AI_TOOL=${VOICE_AI_TOOL:-claude}
 
+# ─── Audio (PulseAudio over TCP) ─────────────────────────────────────────────
+# Voice mode requires PulseAudio TCP on the host.  Enable with:
+#   pactl load-module module-native-protocol-tcp auth-ip-acl="127.0.0.1;172.16.0.0/24" auth-anonymous=1
+# PULSE_SERVER tells PulseAudio clients inside the VM to connect via TAP gateway.
+PULSE_SERVER=${PULSE_SERVER:-tcp:172.16.0.1:4713}
+
 # ─── Terminal ─────────────────────────────────────────────────────────────────
 TERM=xterm-256color
 COLORTERM=truecolor

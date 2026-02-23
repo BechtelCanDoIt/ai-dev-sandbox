@@ -15,16 +15,16 @@
 set -euo pipefail
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-source .env
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+COMPOSE_FILE="$PROJECT_DIR/docker-compose.yml"
+BUILD_SCRIPT="$PROJECT_DIR/scripts/build.sh"
+
+source "$PROJECT_DIR/.env"
 VERSION="1.0.0"
 PROJECT_NAME="AI-Dev-Sandbox"
 CONTAINER_NAME="ai-dev-sandbox"
 HOST_IMAGE="ai-dev-sandbox-host:latest"
 GITHUB_URL="https://github.com/BechtelCanDoIt/ai-dev-sandbox/tree/main/ai-dev-sandbox"
-
-PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-COMPOSE_FILE="$PROJECT_DIR/docker-compose.yml"
-BUILD_SCRIPT="$PROJECT_DIR/scripts/build.sh"
 
 RED=$'\033[0;31m'
 GREEN=$'\033[0;32m'
@@ -135,7 +135,19 @@ wait_for_ready() {
         # Check for the banner's final line in the container logs
         if docker logs "$CONTAINER_NAME" 2>&1 | grep -q "$ready_marker"; then
             echo ""
-            log_ok "Sandbox is ready"
+            # Wait a moment for SSH to come up in the guest
+            local ssh_wait=0
+            while [ $ssh_wait -lt 30 ]; do
+                if docker exec "$CONTAINER_NAME" \
+                    sshpass -p sandbox ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                    -o LogLevel=ERROR -o ConnectTimeout=2 sandbox@172.16.0.2 true 2>/dev/null; then
+                    log_ok "Sandbox is ready"
+                    return 0
+                fi
+                sleep 1
+                ssh_wait=$((ssh_wait + 1))
+            done
+            log_warn "SSH not responding — attaching anyway"
             return 0
         fi
 
@@ -150,11 +162,16 @@ wait_for_ready() {
 
 attach() {
     echo ""
-    log_info "Attaching to ${BOLD}${CONTAINER_NAME}${NC}..."
-    log_info "${DIM}Detach without stopping: CTRL-Q${NC}"
+    log_info "Connecting to ${BOLD}${CONTAINER_NAME}${NC} via SSH..."
+    log_info "${DIM}Exit the sandbox with: exit  (or Ctrl-D)${NC}"
     echo ""
-    echo "Press enter to continue..."
-    exec docker attach --detach-keys="ctrl-q" "$CONTAINER_NAME"
+    exec docker exec -it "$CONTAINER_NAME" \
+        sshpass -p sandbox ssh -t \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o LogLevel=ERROR \
+        -o SendEnv=TERM \
+        sandbox@172.16.0.2
 }
 
 cmd_stop() {
@@ -211,10 +228,10 @@ cmd_help() {
                   Builds automatically if the host image doesn't exist yet.
                   If already running, re-attaches to the existing session.
     ${GREEN}build${NC}         Build the Docker images. Accepts build.sh options:
-                    clean        Clean rebuild (removes .build/)
-                    inner-only   Rebuild the inner image only
-                    inject-only  Re-run rootfs injection only
-                    host-only    Rebuild the host image only
+                      clean        Clean rebuild (removes .build/)
+                      inner-only   Rebuild the inner image only
+                      inject-only  Re-run rootfs injection only
+                      host-only    Rebuild the host image only
     ${GREEN}stop${NC}          Stop the sandbox (docker compose down)
     ${GREEN}version${NC}       Print version
     ${GREEN}gh${NC}            Print the GitHub repository link
@@ -223,12 +240,12 @@ cmd_help() {
 
   ${BOLD}QUICK START${NC}
     ./ai                  # Build (if needed) + start + attach
-    ./ai build clean    # Force a clean rebuild
+    ./ai build clean      # Force a clean rebuild
     ./ai stop             # Shut down the VM
 
   ${BOLD}DETACH / RE-ATTACH${NC}
-    While inside the sandbox, press ${BOLD}CTRL-Q${NC} to detach
-    without stopping the VM. Run ${BOLD}./ai${NC} again to re-attach.
+    While inside the sandbox, type ${BOLD}exit${NC} or press ${BOLD}CTRL-D${NC}
+    to disconnect. The VM keeps running. Run ${BOLD}./ai${NC} again to re-attach.
 
 EOF
 }

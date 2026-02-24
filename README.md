@@ -10,7 +10,13 @@
 AI terminal development environment running inside a **Firecracker MicroVM** to protect the host system.
 
 <div style="text-align: center;">
-  <p><img src="./images/ai-dev-sandbox.png" alt="AI-Dev-Sandbox logo" align="middle"></p>
+  <p><img src="./images/ai-dev-sandbox.png" width="50%" alt="AI-Dev-Sandbox logo" align="middle"></p>
+</div>
+
+## Marketing Flyer
+
+<div style="text-align: center;">
+  <p><a href="marketing/index.html"><img src="images/Highlevel_Architecture.png" width="50%" alt="Marketing Flyer"></a></p>
 </div>
 
 ## Architecture
@@ -49,7 +55,7 @@ cp .env.template .env
 ./ai build
 ```
 
-Build steps (automated by `build.sh`):
+Build steps (automated by ai cli calling `build.sh`):
 1. `docker build` — inner `ai-dev-sandbox:latest` image
 2. `docker save` — exports it to `.build/ai-dev-sandbox.tar`
 3. Extracts `base.ext4` from `firecracker-base:latest`
@@ -90,7 +96,6 @@ Set in `.env` (copied from `.env.template`):
 
 | Variable | Default | Description |
 |---|---|---|
-| `HOST_WORKSPACE` | `./workspace` | Your project dir |
 | `FC_VCPU` | `8` | MicroVM vCPUs |
 | `FC_MEM` | `8192` | MicroVM RAM (MB) |
 | `FC_WORKSPACE_SIZE` | `4096` | Workspace disk (MB) |
@@ -108,12 +113,10 @@ claude          # Claude Code
 opencode        # OpenCode
 gemini          # Gemini CLI
 chatgpt         # ChatGPT CLI
-gh              # GitHub CLI
 
-# Voice (requires PulseAudio socket — optional)
-voice           # Interactive voice chat
-stt             # Speech → text
-tts "hello"     # Text → speech
+# Utilities
+gh              # GitHub CLI
+git             # source control
 
 # Languages
 go version      # Go 
@@ -123,20 +126,6 @@ node --version  # Node.js
 
 # Workspace
 ls /workspace   # Your files
-```
-
-## Voice Mode
-
-### ⚠️ **WARNING** ⚠️
-
-Voice mode is a work in progress and NOT currently working.
-
----
-
-Voice requires a PulseAudio socket. All voice commands gracefully skip (no crash) if audio isn't available. To check:
-
-```bash
-voice test
 ```
 
 ## Security

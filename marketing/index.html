@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Dev Sandbox — Architecture</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;700;800&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --host-color: #00D4AA;
+    --guest-color: #FF6B35;
+    --inner-color: #A78BFA;
+    --bg: #0A0D12;
+    --surface: #111520;
+    --border: rgba(255,255,255,0.07);
+    --text: #E8EDF5;
+    --muted: #6B7A99;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 48px 32px;
+    overflow-x: hidden;
+  }
+
+  /* Radial background glow */
+  body::before {
+    content: '';
+    position: fixed;
+    top: -20%;
+    left: -10%;
+    width: 60%;
+    height: 60%;
+    background: radial-gradient(ellipse, rgba(0,212,170,0.06) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    bottom: -10%;
+    right: -10%;
+    width: 50%;
+    height: 50%;
+    background: radial-gradient(ellipse, rgba(167,139,250,0.07) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .page {
+    max-width: 960px;
+    width: 100%;
+    position: relative;
+  }
+
+  /* HEADER */
+  header {
+    text-align: center;
+    margin-bottom: 56px;
+    animation: fadeUp 0.6s ease both;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--host-color);
+    margin-bottom: 16px;
+  }
+  h1 {
+    font-size: clamp(2.4rem, 5vw, 4rem);
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #fff 0%, var(--muted) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .subtitle {
+    margin-top: 16px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+  }
+
+  /* DIAGRAM */
+  .diagram {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    position: relative;
+  }
+
+  /* LAYER SHELLS */
+  .layer {
+    border-radius: 20px;
+    position: relative;
+    padding: 28px 28px 32px;
+    animation: fadeUp 0.6s ease both;
+  }
+
+  .layer-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .layer-label::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* HOST LAYER */
+  .layer-host {
+    background: rgba(0, 212, 170, 0.04);
+    border: 1.5px solid rgba(0, 212, 170, 0.25);
+    box-shadow: 0 0 60px rgba(0,212,170,0.05), inset 0 1px 0 rgba(0,212,170,0.1);
+    animation-delay: 0.1s;
+  }
+  .layer-host .layer-label { color: var(--host-color); }
+  .layer-host .layer-label::before { background: var(--host-color); box-shadow: 0 0 8px var(--host-color); }
+
+  /* GUEST LAYER */
+  .layer-guest {
+    background: rgba(255, 107, 53, 0.04);
+    border: 1.5px solid rgba(255,107,53,0.25);
+    box-shadow: 0 0 60px rgba(255,107,53,0.05), inset 0 1px 0 rgba(255,107,53,0.1);
+    margin: -8px 16px 0;
+    animation-delay: 0.25s;
+  }
+  .layer-guest .layer-label { color: var(--guest-color); }
+  .layer-guest .layer-label::before { background: var(--guest-color); box-shadow: 0 0 8px var(--guest-color); }
+
+  /* INNER LAYER */
+  .layer-inner {
+    background: rgba(167, 139, 250, 0.04);
+    border: 1.5px solid rgba(167,139,250,0.25);
+    box-shadow: 0 0 60px rgba(167,139,250,0.05), inset 0 1px 0 rgba(167,139,250,0.1);
+    margin: -8px 16px 0;
+    animation-delay: 0.4s;
+  }
+  .layer-inner .layer-label { color: var(--inner-color); }
+  .layer-inner .layer-label::before { background: var(--inner-color); box-shadow: 0 0 8px var(--inner-color); }
+
+  /* NODES GRID */
+  .nodes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: flex-start;
+  }
+
+  .node {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    position: relative;
+    transition: border-color 0.25s, transform 0.25s, box-shadow 0.25s;
+    cursor: default;
+  }
+  .node:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  .node-icon {
+    font-size: 18px;
+    margin-bottom: 2px;
+  }
+  .node-title {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .node-desc {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  /* host-colored nodes */
+  .layer-host .node:hover { border-color: rgba(0,212,170,0.4); box-shadow: 0 8px 32px rgba(0,212,170,0.1); }
+  .layer-guest .node:hover { border-color: rgba(255,107,53,0.4); box-shadow: 0 8px 32px rgba(255,107,53,0.1); }
+  .layer-inner .node:hover { border-color: rgba(167,139,250,0.4); box-shadow: 0 8px 32px rgba(167,139,250,0.1); }
+
+  /* SEPARATOR ARROW */
+  .connector {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0;
+    position: relative;
+    z-index: 10;
+  }
+  .connector-line {
+    width: 2px;
+    height: 32px;
+    background: linear-gradient(to bottom, var(--from-color), var(--to-color));
+    position: relative;
+  }
+  .connector-badge {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    padding: 3px 10px;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    top: 6px;
+    white-space: nowrap;
+  }
+
+  /* SEPARATOR BANNER */
+  .separation-banner {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin: 24px 0;
+    animation: fadeUp 0.6s 0.55s ease both;
+    opacity: 0;
+    animation-fill-mode: both;
+  }
+  .sep-line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(to right, transparent, rgba(255,107,53,0.3), rgba(0,212,170,0.3), transparent);
+  }
+  .sep-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .sep-shield {
+    width: 24px; height: 24px;
+    border: 1.5px solid var(--guest-color);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+  }
+
+  /* NETWORK BADGE */
+  .network-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--guest-color);
+    background: rgba(255,107,53,0.08);
+    border: 1px solid rgba(255,107,53,0.2);
+    border-radius: 8px;
+    padding: 6px 12px;
+    margin-left: auto;
+  }
+  .network-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--guest-color);
+    animation: pulse 2s infinite;
+  }
+
+  /* FEATURE PILLS */
+  .features {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 48px;
+    animation: fadeUp 0.6s 0.65s ease both;
+    animation-fill-mode: both;
+    opacity: 0;
+  }
+  .pill {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 7px 16px;
+    border-radius: 100px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .pill:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+  .pill-dot { width: 5px; height: 5px; border-radius: 50%; }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* HOST/GUEST SPLIT HERO */
+  .split-hero {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 0;
+    margin-bottom: 40px;
+    animation: fadeUp 0.6s 0.05s ease both;
+    animation-fill-mode: both;
+    opacity: 0;
+  }
+  .split-side {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 24px;
+    border-radius: 16px;
+  }
+  .split-side.host-side {
+    background: rgba(0,212,170,0.04);
+    border: 1.5px solid rgba(0,212,170,0.2);
+    border-right: none;
+    border-radius: 16px 0 0 16px;
+  }
+  .split-side.guest-side {
+    background: rgba(255,107,53,0.04);
+    border: 1.5px solid rgba(255,107,53,0.2);
+    border-left: none;
+    border-radius: 0 16px 16px 0;
+  }
+  .split-divider {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface);
+    border-top: 1.5px solid var(--border);
+    border-bottom: 1.5px solid var(--border);
+    padding: 16px 0;
+    position: relative;
+    width: 48px;
+  }
+  .split-divider::before {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 1px;
+    background: linear-gradient(to bottom, rgba(0,212,170,0.4), rgba(255,107,53,0.4));
+  }
+  .divider-icon {
+    font-size: 18px;
+    background: var(--surface);
+    padding: 4px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .side-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .host-side .side-label { color: var(--host-color); }
+  .guest-side .side-label { color: var(--guest-color); }
+
+  .side-items {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .side-item {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .side-item::before {
+    content: '';
+    width: 4px; height: 4px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .host-side .side-item::before { background: var(--host-color); }
+  .guest-side .side-item::before { background: var(--guest-color); }
+  .side-item-desc { color: var(--muted); font-size: 10px; margin-left: 12px; display: block; margin-top: 1px; }
+
+  .side-head {
+    font-size: clamp(1.2rem, 3vw, 1.8rem);
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+  .host-side .side-head { color: var(--host-color); }
+  .guest-side .side-head { color: var(--guest-color); }
+
+  /* FULL STACK */
+  .stack-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: center;
+    margin-bottom: 20px;
+    animation: fadeUp 0.6s 0.3s ease both;
+    animation-fill-mode: both;
+    opacity: 0;
+  }
+
+  .layer-row {
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .layer-tag {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    font-weight: 700;
+    padding: 8px 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    white-space: nowrap;
+    min-width: 26px;
+  }
+
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="eyebrow">Open Source · AI Tooling</div>
+    <h1>AI Dev Sandbox</h1>
+    <div class="subtitle">Nested Virtualization for Secure, Isolated AI Development</div>
+  </header>
+
+  <!-- HOST / GUEST SPLIT -->
+  <div class="split-hero">
+    <div class="split-side host-side">
+      <div>
+        <div class="side-label">Layer 1–2 · Host</div>
+        <div class="side-head">Host Machine<br>+ Container</div>
+      </div>
+      <div class="side-items">
+        <div class="side-item">
+          Linux OS (KVM Required)
+          <span class="side-item-desc"></span>
+        </div>
+        <div class="side-item">
+          Docker Engine
+          <span class="side-item-desc"></span>
+        </div>
+        <div class="side-item">
+          Firecracker VMM Process
+          <span class="side-item-desc"></span>
+        </div>
+        <div class="side-item">
+          ai-dev-sandbox-host image
+          <span class="side-item-desc"></span>
+        </div>
+        <div class="side-item">
+          ext4 Guest Filesystem
+          <span class="side-item-desc"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="split-divider">
+      <div class="divider-icon">🔒</div>
+    </div>
+
+    <div class="split-side guest-side">
+      <div>
+        <div class="side-label">Layer 3–4 · Guest</div>
+        <div class="side-head">MicroVM<br>+ Container</div>
+      </div>
+      <div class="side-items">
+        <div class="side-item">
+          Firecracker MicroVM
+          <span class="side-item-desc"></span>
+        </div>
+        <div class="side-item">
+          Guest Linux Kernel + systemd
+          <span class="side-item-desc"></span>
+        </div>
+        <div class="side-item">
+          Docker Daemon (Guest)
+          <span class="side-item-desc"></span>
+        </div>
+        <div class="side-item">
+          TAP Network · 172.16.0.x
+          <span class="side-item-desc"></span>
+        </div>
+        <div class="side-item">
+          ai-dev-sandbox inner image
+          <span class="side-item-desc"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LAYER STACK -->
+  <div class="stack-label">Full Layer Stack</div>
+
+  <div class="diagram">
+
+    <!-- LAYER 1+2: HOST -->
+    <div class="layer layer-host">
+      <div class="layer-label">Layer 1–2 &nbsp;/&nbsp; Host Machine + Host Container</div>
+      <div class="nodes">
+        <div class="node">
+          <div class="node-icon">🖥️</div>
+          <div class="node-title">Linux Host OS</div>
+          <div class="node-desc">KVM Required</div>
+        </div>
+        <div class="node">
+          <div class="node-icon">🐳</div>
+          <div class="node-title">Docker Engine</div>
+          <div class="node-desc">Host Orchestration</div>
+        </div>
+        <div class="node">
+          <div class="node-icon">📁</div>
+          <div class="node-title">./workspace/</div>
+          <div class="node-desc">Project Files</div>
+        </div>
+        <div class="node">
+          <div class="node-icon">📦</div>
+          <div class="node-title">ai-dev-sandbox-host</div>
+          <div class="node-desc">Alpine-based host image</div>
+        </div>
+        <div class="node">
+          <div class="node-icon">💾</div>
+          <div class="node-title">ai-dev-sandbox.ext4</div>
+          <div class="node-desc">Guest Filesystem Image</div>
+        </div>
+        <div class="node">
+          <div class="node-icon">⚙️</div>
+          <div class="node-title">host-entrypoint.sh</div>
+          <div class="node-desc">Boot orchestration</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SEPARATION BANNER -->
+    <div class="separation-banner">
+      <div class="sep-line"></div>
+      <div class="sep-label">
+        <div class="sep-shield">🔒</div>
+        Hypervisor Boundary — Firecracker MicroVM Isolation
+      </div>
+      <div class="sep-line"></div>
+    </div>
+
+    <!-- LAYER 3: FIRECRACKER VM -->
+    <div class="layer layer-guest">
+      <div class="layer-label">Layer 3 &nbsp;/&nbsp; Firecracker MicroVM</div>
+      <div class="nodes">
+        <div class="node">
+          <div class="node-icon">⚡</div>
+          <div class="node-title">Guest Linux Kernel</div>
+          <div class="node-desc">Isolated kernel</div>
+        </div>
+        <div class="node">
+          <div class="node-icon">🔧</div>
+          <div class="node-title">systemd</div>
+          <div class="node-desc">Service manager</div>
+        </div>
+        <div class="node">
+          <div class="node-icon">🌐</div>
+          <div class="node-title">TAP Network</div>
+          <div class="node-desc">172.16.0.1 / .0.2</div>
+        </div>
+        <div class="node">
+          <div class="node-icon">🐳</div>
+          <div class="node-title">Docker Daemon</div>
+          <div class="node-desc">Guest-scoped Docker</div>
+        </div>
+        <div class="node">
+          <div class="node-icon">🔗</div>
+          <div class="node-title">ai-dev-sandbox-egress</div>
+          <div class="node-desc">Network egress service</div>
+        </div>
+        <div class="node">
+          <div class="node-icon">📂</div>
+          <div class="node-title">/workspace Mount</div>
+          <div class="node-desc">virtiofs passthrough</div>
+        </div>
+      </div>
+
+      <!-- LAYER 4: INNER CONTAINER -->
+      <div class="layer layer-inner" style="margin: 20px 0 0; padding-top: 24px;">
+        <div class="layer-label">Layer 4 &nbsp;/&nbsp; Inner Development Container</div>
+        <div class="nodes">
+          <div class="node">
+            <div class="node-icon">🤖</div>
+            <div class="node-title">Claude Code</div>
+            <div class="node-desc">AI CLI — Anthropic</div>
+          </div>
+          <div class="node">
+            <div class="node-icon">💬</div>
+            <div class="node-title">OpenCode / Gemini CLI</div>
+            <div class="node-desc">Additional AI tools</div>
+          </div>
+          <div class="node">
+            <div class="node-icon">🦀</div>
+            <div class="node-title">Go · Python · Rust</div>
+            <div class="node-desc">Full dev toolchains</div>
+          </div>
+          <div class="node">
+            <div class="node-icon">🎙️</div>
+            <div class="node-title">STT / TTS / Voice</div>
+            <div class="node-desc">Whisper + Piper</div>
+          </div>
+          <div class="node">
+            <div class="node-icon">📂</div>
+            <div class="node-title">/workspace</div>
+            <div class="node-desc">Shared mount point</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- FEATURE PILLS -->
+  <div class="features">
+    <div class="pill"><span class="pill-dot" style="background:var(--host-color)"></span>KVM Hardware Isolation</div>
+    <div class="pill"><span class="pill-dot" style="background:var(--guest-color)"></span>Nested Docker-in-VM</div>
+    <div class="pill"><span class="pill-dot" style="background:var(--inner-color)"></span>Multi-AI CLI Support</div>
+    <div class="pill"><span class="pill-dot" style="background:var(--host-color)"></span>Shared /workspace</div>
+    <div class="pill"><span class="pill-dot" style="background:var(--guest-color)"></span>TAP Network Isolation</div>
+    <div class="pill"><span class="pill-dot" style="background:var(--inner-color)"></span>Voice-capable (Whisper + Piper)</div>
+    <div class="pill"><span class="pill-dot" style="background:var(--host-color)"></span>Graceful Feature Degradation</div>
+    <div class="pill"><span class="pill-dot" style="background:var(--muted)"></span>Reproducible Builds</div>
+  </div>
+
+</div>
+</body>
+</html>

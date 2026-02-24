@@ -16,7 +16,7 @@ AI terminal development environment running inside a **Firecracker MicroVM** to 
 ## Marketing Flyer
 
 <div style="text-align: center;">
-  <p><a href="marketing/index.html"><img src="images/Highlevel_Architecture.png" width="50%" alt="Marketing Flyer"></a></p>
+  <p><a href="https://bechtelcandoit.github.io/ai-dev-sandbox/"><img src="images/Highlevel_Architecture.png" width="50%" alt="Marketing Flyer"></a></p>
 </div>
 
 ## Architecture

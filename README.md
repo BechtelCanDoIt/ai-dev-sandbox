@@ -1,5 +1,6 @@
 <div style="text-align: center;">
   <p>amd64✅ - arm64⚠️</p>
+  <p><a href="https://deepwiki.com/BechtelCanDoIt/ai-dev-sandbox"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a></p>
 </div>
 
 ---

@@ -66,6 +66,9 @@ setup_home() {
     # npm global prefix → home dir (no sudo needed, survives home volume)
     npm config set prefix '/home/sandbox/.npm-global' 2>/dev/null || true
 
+    cp /workspace/.sandbox.env ~/.env 2>/dev/null || true
+    source ~/.env 2>/dev/null || true
+
     log_success "Home directory setup complete"   
 }
 
@@ -201,9 +204,7 @@ main() {
 
     setup_voice_mode
     check_ollama
-
-    cp /workspace/.sandbox.env ~/.env 2>/dev/null || true
-
+    
     touch ~/.sandbox_initialized
     log_success "Initialization complete"
 }

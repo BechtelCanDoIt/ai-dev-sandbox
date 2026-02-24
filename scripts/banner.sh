@@ -2,6 +2,8 @@
 # =============================================================================
 # Welcome banner
 # =============================================================================
+source ~/.bashrc 2>/dev/null || true
+source ~/.env 2>/dev/null || true
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -9,20 +11,28 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+log_info()    { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_success() { echo -e "${GREEN}[OK]${NC}   $1"; }
+log_warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error()   { echo -e "${RED}[ERR]${NC}  $1" >&2; }
+
 check_ollama() {
-    echo "enter check_ollama function"
     local host="${OLLAMA_HOST:-}"
     [ -z "$host" ] && return 0
 
     if curl -sf --max-time 3 "$host/api/tags" >/dev/null 2>&1; then
-        local models
-        models=$(curl -sf --max-time 3 "$host/api/tags" \
-            | jq -r '.models[].name' 2>/dev/null | head -3 | tr '\n' ' ' || echo '?')
-        log_success "Ollama: connected at $host  ($models)"
+        local all_models models suffix
+        all_models=$(curl -sf --max-time 3 "$host/api/tags" \
+            | jq -r '.models[].name' 2>/dev/null || echo '?')
+        local count
+        count=$(echo "$all_models" | wc -l)
+        models=$(echo "$all_models" | head -3 | tr '\n' ' ')
+        suffix=""
+        [ "$count" -gt 3 ] && suffix="..."
+        echo "    Ollama: connected at $host  ($models$suffix)"
     else
         log_warn "OPTIONAL - Ollama: cannot reach $host - install on host or cloud."
     fi
-    echo "exit check_ollama function"
 }
 
     echo ""
@@ -33,8 +43,8 @@ check_ollama() {
     echo ""
 
     echo -e "  ${YELLOW}Current User:${NC}"
-    local usr = $(whoami 2>/dev/null || echo "unknown")
-    local id_info = $(id 2>/dev/null || echo "unknown")
+    usr=$(whoami 2>/dev/null || echo "unknown")
+    id_info=$(id 2>/dev/null || echo "unknown")
     echo "    $usr"
     echo "    $id_info"
     echo ""
@@ -71,7 +81,6 @@ check_ollama() {
     #echo ""
 
     echo -e "  ${YELLOW}Workspace:${NC} /workspace"
-    [ -n "${OLLAMA_HOST:-}" ] && echo -e "  ${YELLOW}Ollama:${NC}    ${OLLAMA_HOST}"
     echo ""
 
     echo -e "  ${YELLOW}Quick Start:${NC}"

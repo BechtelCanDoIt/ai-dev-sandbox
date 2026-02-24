@@ -142,6 +142,12 @@ RUN ln -s /opt/piper/piper /usr/local/bin/piper && \
     mkdir -p /opt/scripts && \
     chown -R sandbox:sandbox /opt/scripts /models /opt/piper
 
+# ─── set Lang to utf8  ────────────────────────────────────────────────────────
+# Add Lang/LC_ALL settings to avoid any potential locale-related issues in tools or scripts
+RUN echo "export LANG=C.UTF-8" >> /home/sandbox/.bashrc && \
+    echo "export LC_ALL=C.UTF-8" >> /home/sandbox/.bashrc && \
+    echo "source ~/.env" >> /home/sandbox/.bashrc
+
 # ─── Scripts ──────────────────────────────────────────────────────────────────
 COPY --chown=sandbox:sandbox scripts/entrypoint.sh /opt/scripts/entrypoint.sh
 COPY --chown=sandbox:sandbox scripts/stt           /opt/scripts/stt
@@ -151,7 +157,6 @@ COPY --chown=sandbox:sandbox scripts/banner.sh     /opt/scripts/banner.sh
 RUN chmod +x /opt/scripts/*
 
 RUN echo "/opt/scripts/banner.sh" >> /home/sandbox/.bashrc
-
 
 # ─── Switch to sandbox user ───────────────────────────────────────────────────
 USER sandbox

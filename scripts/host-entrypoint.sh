@@ -36,10 +36,20 @@ write_sandbox_env() {
 # =============================================================================
 
 # ─── AI API Keys ─────────────────────────────────────────────────────────────
-ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-OPENAI_API_KEY=${OPENAI_API_KEY:-}
+
+# Get API KEY: https://platform.claude.com/dashboard
+ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-} # You can add api key (more expensive) OR use OAuth2 flow for Claude Code (cheaper!).
+
+# https://platform.openai.com/api-keys
+OPENAI_API_KEY=${OPENAI_API_KEY:-}  
+
+
 GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+
+
 GEMINI_API_KEY=${GEMINI_API_KEY:-}
+
+
 GITHUB_TOKEN=${GITHUB_TOKEN:-}
 
 # ─── Ollama - Host machine ────────────────────────────────────────────────────
